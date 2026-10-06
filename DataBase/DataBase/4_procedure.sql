@@ -1,88 +1,113 @@
 -- ============================================================
 -- Procedure pegawai pengajuan cuti
 -- ============================================================
+DROP PROCEDURE IF EXISTS sp_buat_pengajuan_cuti;
+
 DELIMITER $$
 
 CREATE PROCEDURE sp_buat_pengajuan_cuti(
-    p_id_pegawai  INT,
-    p_id_jenis    INT,
-    p_tgl_mulai   DATE,
-    p_tgl_selesai DATE
+    IN p_id_pegawai INT,
+    IN p_id_jenis INT,
+    IN p_tgl_mulai DATE,
+    IN p_tgl_selesai DATE
 )
 BEGIN
     DECLARE v_durasi INT;
     DECLARE v_potong BOOLEAN;
     DECLARE v_sisa INT;
-    DECLARE v_error_msg VARCHAR(255) DEFAULT '';
-
+    -- 1. Cek pegawai
     IF NOT EXISTS (
-        SELECT 1 FROM Pegawai WHERE ID_Pegawai = p_id_pegawai AND Status_Aktif = TRUE
+        SELECT 1
+        FROM Pegawai
+        WHERE ID_Pegawai = p_id_pegawai
+          AND Status_Aktif = TRUE
     ) THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Pegawai tidak aktif atau tidak ditemukan.';
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT =
+            'Pegawai tidak aktif atau tidak ditemukan.';
     END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM Jenis_Cuti WHERE ID_Jenis = p_id_jenis) THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Jenis cuti tidak valid.';
+    -- 2. Cek jenis cuti
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Jenis_Cuti
+        WHERE ID_Jenis = p_id_jenis
+    ) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT =
+            'Jenis cuti tidak valid.';
     END IF;
-
+    -- 3. Cek tanggal
     IF p_tgl_mulai > p_tgl_selesai THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Tanggal mulai harus sebelum tanggal selesai.';
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT =
+            'Tanggal mulai harus sebelum tanggal selesai.';
     END IF;
-
-    SET v_durasi = fn_hitung_hari_kerja(p_tgl_mulai, p_tgl_selesai);
+    -- 4. Hitung hari kerja
+    SET v_durasi =
+        fn_hitung_hari_kerja(
+            p_tgl_mulai,
+            p_tgl_selesai
+        );
 
     IF v_durasi = 0 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Tidak ada hari kerja dalam rentang tanggal tersebut.';
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT =
+            'Tidak ada hari kerja dalam rentang tanggal tersebut.';
     END IF;
-
-    -- Cek apakah jenis cuti memotong cuti tahunan
-    SELECT Apakah_Potong_Cuti_Tahunan INTO v_potong
-    FROM Jenis_Cuti WHERE ID_Jenis = p_id_jenis;
-
+    -- 5. Cek apakah cuti memotong kuota tahunan
+    SELECT Apakah_Potong_Cuti_Tahunan
+    INTO v_potong
+    FROM Jenis_Cuti
+    WHERE ID_Jenis = p_id_jenis;
     IF v_potong = TRUE THEN
-        SELECT Sisa_Cuti_Tahunan INTO v_sisa
-        FROM Pegawai WHERE ID_Pegawai = p_id_pegawai;
+        SELECT Sisa_Cuti_Tahunan
+        INTO v_sisa
+        FROM Pegawai
+        WHERE ID_Pegawai = p_id_pegawai;
 
         IF v_sisa < v_durasi THEN
             SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = 'Sisa cuti tidak mencukupi.';
+            SET MESSAGE_TEXT =
+                'Sisa cuti tidak mencukupi.';
         END IF;
-    END IF;
 
-    -- Cek apakah ada pengajuan pending di rentang tanggal yang sama
+    END IF;
+    -- 6. Cek pengajuan pending yang bentrok
     IF EXISTS (
-        SELECT 1 FROM Pengajuan_Cuti
+        SELECT 1
+        FROM Pengajuan_Cuti
         WHERE ID_Pegawai = p_id_pegawai
           AND Status_Pengajuan = 'pending'
           AND (
-              (p_tgl_mulai BETWEEN Tgl_Mulai AND Tgl_Selesai) OR
-              (p_tgl_selesai BETWEEN Tgl_Mulai AND Tgl_Selesai) OR
-              (Tgl_Mulai BETWEEN p_tgl_mulai AND p_tgl_selesai)
-          )
+                p_tgl_mulai BETWEEN Tgl_Mulai AND Tgl_Selesai
+                OR
+                p_tgl_selesai BETWEEN Tgl_Mulai AND Tgl_Selesai
+                OR
+                Tgl_Mulai BETWEEN p_tgl_mulai AND p_tgl_selesai
+              )
     ) THEN
         SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = 'Sudah ada pengajuan cuti pending di rentang tanggal tersebut.';
+        SET MESSAGE_TEXT =
+            'Sudah ada pengajuan cuti pending di rentang tanggal tersebut.';
     END IF;
+    -- 7. Simpan pengajuan
+    INSERT INTO Pengajuan_Cuti (
+        ID_Pegawai,
+        ID_Jenis,
+        Tgl_Mulai,
+        Tgl_Selesai,
+        Durasi_Hari,
+        Status_Pengajuan
+    )
+    VALUES (
+        p_id_pegawai,
+        p_id_jenis,
+        p_tgl_mulai,
+        p_tgl_selesai,
+        v_durasi,
+        'pending'
+    );
 
-    -- Insert pengajuan
-    INSERT INTO Pengajuan_Cuti (ID_Pegawai, ID_Jenis, Tgl_Mulai, Tgl_Selesai, Durasi_Hari, Status_Pengajuan)
-    VALUES (p_id_pegawai, p_id_jenis, p_tgl_mulai, p_tgl_selesai, v_durasi, 'pending');
-
-    SET @v_id_pengajuan = LAST_INSERT_ID();
-
-    -- Insert detail libur (weekend & libur nasional dalam rentang)
-    INSERT INTO Detail_Libur_Cuti (ID_Pengajuan, Tanggal_Libur)
-    SELECT @v_id_pengajuan, v_tgl
-    FROM (
-        SELECT DATE_ADD(p_tgl_mulai, INTERVAL seq DAY) AS v_tgl
-        FROM (
-            SELECT @row := @row + 1 AS seq
-            FROM information_schema.columns, (SELECT @row := -1) r
-            LIMIT DATEDIFF(p_tgl_selesai, p_tgl_mulai) + 1
-        ) t
-    ) dates
-    WHERE DAYOFWEEK(v_tgl) IN (1, 7)
-       OR EXISTS (SELECT 1 FROM Libur_Nasional WHERE Tanggal_Libur = v_tgl);
 END$$
 
 DELIMITER ;
