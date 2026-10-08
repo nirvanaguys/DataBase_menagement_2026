@@ -123,12 +123,24 @@ app.get('/api/cuti', async (req, res) => {
                 Durasi_Hari,
                 Status_Pengajuan
             FROM v_daftar_pengajuan_cuti
+            ORDER BY ID_Pengajuan DESC
         `);
+
+        const data = rows.map(row => ({
+            ...row,
+            Tgl_Mulai: row.Tgl_Mulai
+                ? row.Tgl_Mulai.toISOString().split('T')[0]
+                : null,
+            Tgl_Selesai: row.Tgl_Selesai
+                ? row.Tgl_Selesai.toISOString().split('T')[0]
+                : null
+        }));
 
         res.json({
             success: true,
-            data: rows
+            data: data
         });
+
     } catch (error) {
         res.status(500).json({
             success: false,
@@ -192,6 +204,220 @@ app.get('/api/cuti/riwayat/:id', async (req, res) => {
         });
     }
 });
+
+app.post('/api/cuti/cancel', async (req, res) => {
+    try {
+        const {
+            id_pengajuan,
+            id_pegawai
+        } = req.body;
+
+        const [result] = await db.query(
+            `CALL sp_batalkan_pengajuan_cuti(?, ?)`,
+            [
+                id_pengajuan,
+                id_pegawai
+            ]
+        );
+
+        res.json({
+            success: true,
+            message: 'Pengajuan cuti berhasil dibatalkan',
+            data: result
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.get('/api/cuti/bawahan/:id', async (req, res) => {
+    try {
+        const idAtasan = Number(req.params.id);
+
+        const [rows] = await db.query(
+            'CALL sp_lihat_pengajuan_bawahan(?)',
+            [idAtasan]
+        );
+
+        const data = rows[0].map(row => ({
+            ...row,
+            Tgl_Mulai: row.Tgl_Mulai
+                ? row.Tgl_Mulai.toISOString().split('T')[0]
+                : null,
+            Tgl_Selesai: row.Tgl_Selesai
+                ? row.Tgl_Selesai.toISOString().split('T')[0]
+                : null
+        }));
+
+        res.json({
+            success: true,
+            data: data
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/cuti/reject', async (req, res) => {
+    try {
+        const {
+            id_pengajuan,
+            id_approver,
+            catatan
+        } = req.body;
+
+        const [result] = await db.query(
+            'CALL sp_tolak_pengajuan_cuti(?, ?, ?)',
+            [
+                id_pengajuan,
+                id_approver,
+                catatan
+            ]
+        );
+
+        res.json({
+            success: true,
+            message: 'Pengajuan cuti berhasil ditolak',
+            data: result
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/pegawai', async (req, res) => {
+    try {
+        const {
+            nama_pegawai,
+            id_atasan,
+            role,
+            sisa_cuti
+        } = req.body;
+
+        const [result] = await db.query(
+            'CALL sp_tambah_pegawai_baru(?, ?, ?, ?)',
+            [
+                nama_pegawai,
+                id_atasan,
+                role,
+                sisa_cuti
+            ]
+        );
+
+        res.json({
+            success: true,
+            message: 'Pegawai baru berhasil ditambahkan',
+            data: result
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.patch('/api/pegawai/:id/nonaktif', async (req, res) => {
+    try {
+        const idPegawai = Number(req.params.id);
+
+        const [result] = await db.query(
+            'CALL sp_nonaktifkan_pegawai(?)',
+            [idPegawai]
+        );
+
+        res.json({
+            success: true,
+            message: 'Pegawai berhasil dinonaktifkan',
+            data: result
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/jenis-cuti', async (req, res) => {
+    try {
+        const { nama, potong } = req.body;
+
+        const [result] = await db.query(
+            'CALL sp_tambah_jenis_cuti(?, ?)',
+            [nama, potong]
+        );
+
+        res.json({
+            success: true,
+            message: 'Jenis cuti berhasil ditambahkan',
+            data: result
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/cuti/tambah-kuota', async (req, res) => {
+    try {
+        const { id_pegawai, jumlah, keterangan } = req.body;
+
+        const [result] = await db.query(
+            'CALL sp_tambah_sisa_cuti_tahunan(?, ?, ?)',
+            [id_pegawai, jumlah, keterangan]
+        );
+
+        res.json({
+            success: true,
+            message: 'Sisa cuti tahunan berhasil ditambahkan',
+            data: result
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/libur', async (req, res) => {
+    try {
+        const { tanggal, keterangan } = req.body;
+
+        const [result] = await db.query(
+            'CALL sp_tambah_libur_nasional(?, ?)',
+            [tanggal, keterangan]
+        );
+
+        res.json({
+            success: true,
+            message: 'Hari libur nasional berhasil ditambahkan',
+            data: result
+        });
+    } catch (error) {
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
 
 app.listen(3000, () => {
     console.log('Server berjalan di http://localhost:3000');

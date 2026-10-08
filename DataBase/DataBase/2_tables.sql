@@ -40,17 +40,6 @@ CREATE TABLE Pengajuan_Cuti (
 );
 
 -- ============================================================
--- TABEL Detail_Libur_Cuti
--- ============================================================
-CREATE TABLE Detail_Libur_Cuti (
-    ID_Pengajuan      INT NOT NULL,
-    Tanggal_Libur     DATE NOT NULL,
-    PRIMARY KEY (ID_Pengajuan, Tanggal_Libur),
-    FOREIGN KEY (ID_Pengajuan) REFERENCES Pengajuan_Cuti(ID_Pengajuan)
-        ON DELETE CASCADE ON UPDATE CASCADE
-);
-
--- ============================================================
 -- TABEL Approval_Cuti
 -- ============================================================
 CREATE TABLE Approval_Cuti (
@@ -87,3 +76,4 @@ CREATE TABLE Libur_Nasional (
     Tanggal_Libur     DATE PRIMARY KEY,
     Keterangan        VARCHAR(255) NULL
 );
+ 
